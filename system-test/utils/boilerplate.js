@@ -1,6 +1,6 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
-
+var Promise = require('bluebird');
 var wd = require('wd');
 require('colors');
 var chai = require('chai');
@@ -75,7 +75,7 @@ Boilerplate.prototype.setup = function(testName, startingURL, outputCount){
     function(target) { // browser or el
       return target
         .elementsByCssSelector('div.output_area').then(function(nodes) {
-            console.log(nodes.length+"/"+outputCount)
+            console.log("output areas visible: ", nodes.length, "/", outputCount)
             nodes.should.have.length.above(outputCount-1);
             return target; // this will be returned by waitFor
             // and ignored by waitForElement.
@@ -101,22 +101,42 @@ Boilerplate.prototype.setup = function(testName, startingURL, outputCount){
     var kernelStartTimeout = 200000;
     var defaultTimeout = 10000;
     var runAllCompletionTimeout = 50000;
+
+    function clickTheElement(element) {
+        return new Promise(function(resolve) {
+            var newElement = element.click()
+                      .elementByLinkText("<", "Cell")
+                      .click()
+                      .waitForElementByLinkText("Run Cells", wd.asserters.isDisplayed, 10000)
+                      .elementByLinkText("Run Cells")
+                      .click()
+                      .sleep(5000);
+            resolve(newElement);
+        });
+    }
+
+    function runAllCells(elements, idx) {
+        if (idx > elements.length - 1) {
+            return;
+        }
+
+        var element = elements[idx];
+        clickTheElement(element).then(function(elem) {
+            console.log("running cell: ", idx);
+            runAllCells(elements, idx+1);
+        })
+    }
+
     this.browser.init(desired)
         .get(startingURL || '/')
         .waitForElementByCssSelector("#kernel_indicator_icon.kernel_idle_icon", wd.asserters.isDisplayed, kernelStartTimeout)
-        .waitForElementByLinkText("Cell", wd.asserters.isDisplayed, defaultTimeout)
-        .elementByLinkText("Cell")
-        .click()
-        .waitForElementByLinkText("Run All", wd.asserters.isDisplayed, defaultTimeout)
-        .elementByLinkText("Run All")
-        .click()
+        .elementsByCssSelector('div.input').then(function (elements) {
+            runAllCells(elements, 0);
+        })
+        .waitFor(outputAsserter, runAllCompletionTimeout*5, 1000)
         .eval("!!document.body.createShadowRoot", function(err, value) {
             this.browserSupportsShadowDOM = value;
         }.bind(this))
-        .waitForElementByCssSelector('div.output_area', wd.asserters.isDisplayed, defaultTimeout)
-        .elementByCssSelector('div.code_cell .input').click() // to keep the first code cell in view on sauce
-        .waitFor(outputAsserter, runAllCompletionTimeout, 1000)
-        .sleep(defaultTimeout*2) //FIXME: shouldn't need this?
         .nodeify(done);
   }.bind(this));
 
